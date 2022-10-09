@@ -8,6 +8,7 @@ local StandardView = lazy.access("diffview.scene.views.standard.standard_view", 
 local arg_parser = lazy.require("diffview.arg_parser") ---@module "diffview.arg_parser"
 local config = lazy.require("diffview.config") ---@module "diffview.config"
 local git = lazy.require("diffview.git.utils") ---@module "diffview.git.utils"
+local hg = lazy.require("diffview.hg.utils") ---@module "diffview.hg.utils"
 local logger = lazy.require("diffview.logger") ---@module "diffview.logger"
 local utils = lazy.require("diffview.utils") ---@module "diffview.utils"
 
@@ -173,7 +174,8 @@ function M.file_history(range, args)
     table.insert(top_indicators, pl:realpath("."))
   end
 
-  local err, git_toplevel = M.find_git_toplevel(top_indicators)
+  -- local err, git_toplevel = M.find_git_toplevel(top_indicators)
+  local err, git_toplevel = M.find_hg_toplevel(top_indicators)
 
   if err then
     utils.err(err)
@@ -297,6 +299,36 @@ function M.find_git_toplevel(top_indicators)
 
     if p and pl:readable(p) then
       toplevel = git.toplevel(p)
+
+      if toplevel then
+        return nil, toplevel
+      end
+    end
+  end
+
+  return (
+    ("Path not a git repo (or any parent): %s")
+    :format(table.concat(vim.tbl_map(function(v)
+      local rel_path = pl:relative(v, ".")
+      return utils.str_quote(rel_path == "" and "." or rel_path)
+    end, top_indicators) --[[@as vector ]], ", "))
+  )
+end
+
+---Try to find the top-level of a working tree by using the given indicative
+---paths.
+---@param top_indicators string[] A list of paths that might indicate what working tree we are in.
+---@return string? err
+---@return string? toplevel # The absolute path to the git top-level.
+function M.find_hg_toplevel(top_indicators)
+  local toplevel
+  for _, p in ipairs(top_indicators) do
+    if not pl:is_dir(p) then
+      p = pl:parent(p)
+    end
+
+    if p and pl:readable(p) then
+      toplevel = hg.toplevel(p)
 
       if toplevel then
         return nil, toplevel
