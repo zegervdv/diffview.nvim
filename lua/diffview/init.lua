@@ -229,7 +229,7 @@ function M.rev_candidates(git_toplevel, git_dir)
     end
 
     ---@cast git_toplevel string
-    git_dir = vcs.git_dir(git_toplevel)
+    git_dir = vcs.root_dir(git_toplevel)
   end
 
   if not (git_toplevel and git_dir) then
@@ -327,7 +327,7 @@ M.completers = {
 
     if not err then
       ---@cast git_toplevel string
-      git_dir = vcs.git_dir(git_toplevel)
+      git_dir = vcs.root_dir(git_toplevel)
     end
 
     for i = 2, math.min(#ctx.args, ctx.divideridx) do

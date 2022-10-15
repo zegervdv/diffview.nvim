@@ -33,7 +33,7 @@ local CDiffView = oop.create_class("CDiffView", DiffView.__get())
 function CDiffView:init(opt)
   logger.info("[api] Creating a new Custom DiffView.")
   self.valid = false
-  local git_dir = vcs.git_dir(opt.git_root)
+  local git_dir = vcs.root_dir(opt.git_root)
 
   if not git_dir then
     utils.err(

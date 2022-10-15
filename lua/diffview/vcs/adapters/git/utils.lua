@@ -40,9 +40,16 @@ local sync_jobs = {}
 ---@type Semaphore
 local job_queue_sem = Semaphore.new(1)
 
+function M.setup(parent)
+  M.exec_sync = parent.exec_sync
+end
+
+function M.get_command()
+  return config.get_config().git_cmd
+end
+
 ---Ensure that the configured git binary meets the version requirement.
-local function run_bootstrap()
-  bootstrap.done = true
+function M.run_bootstrap()
   local msg
 
   local out, code = utils.system_list(
@@ -88,8 +95,6 @@ local function run_bootstrap()
     utils.err(msg)
     return
   end
-
-  bootstrap.ok = true
 end
 
 ---@return string cmd The git binary.
@@ -100,25 +105,6 @@ end
 ---@return string[] args The default git args.
 local function git_args()
   return utils.vec_slice(config.get_config().git_cmd, 2)
-end
-
----Execute a git command synchronously.
----@param args string[]
----@param cwd_or_opt? string|utils.system_list.Opt
----@return string[] stdout
----@return integer code
----@return string[] stderr
----@overload fun(args: string[], cwd: string?)
----@overload fun(args: string[], opt: utils.system_list.Opt?)
-function M.exec_sync(args, cwd_or_opt)
-  if not bootstrap.done then
-    run_bootstrap()
-  end
-
-  return utils.system_list(
-    vim.tbl_flatten({ config.get_config().git_cmd, args }),
-    cwd_or_opt
-  )
 end
 
 ---@param job Job
@@ -405,7 +391,7 @@ end, 5)
 ---@param callback function
 ---@return string[]? err
 ---@return FileDict?
-M.diff_file_list = async.wrap(function(ctx, left, right, path_args, dv_opt, opt, callback)
+function M.diff_file_list(ctx, left, right, path_args, dv_opt, opt, callback)
   ---@type FileDict
   local files = FileDict()
   ---@type CountDownLatch
@@ -500,7 +486,7 @@ M.diff_file_list = async.wrap(function(ctx, left, right, path_args, dv_opt, opt,
 
   files:update_file_trees()
   callback(nil, files)
-end, 7)
+end
 
 ---@class git.utils.PreparedLogOpts
 ---@field rev_range string
@@ -1336,7 +1322,7 @@ function M.git_context(path)
   end
 end
 
-M.show = async.wrap(function(toplevel, args, callback)
+function M.show (toplevel, args, callback)
   local job = Job:new({
     command = git_bin(),
     args = utils.vec_join(
@@ -1378,7 +1364,7 @@ M.show = async.wrap(function(toplevel, args, callback)
   -- silently.
   -- Solution: queue them and run them one after another.
   queue_sync_job(job)
-end, 3)
+end
 
 local CONFLICT_START = [[^<<<<<<< ]]
 local CONFLICT_BASE = [[^||||||| ]]
@@ -1534,11 +1520,6 @@ function M.pathspec_expand(toplevel, cwd, pathspec)
   return magic .. utils.path:convert(pattern)
 end
 
-function M.pathspec_modify(pathspec, mods)
-  local magic, pattern = M.pathspec_split(pathspec)
-  return magic .. utils.path:vim_fnamemodify(pattern, mods)
-end
-
 ---Check if any of the given revs are LOCAL.
 ---@param left Rev
 ---@param right Rev
@@ -1640,7 +1621,7 @@ end
 ---@param path string
 ---@param kind '"staged"'|'"working"'
 ---@param commit string
-M.restore_file = async.wrap(function(toplevel, path, kind, commit, callback)
+function M.restore_file (toplevel, path, kind, commit, callback)
   local out, code
   local abs_path = utils.path:join(toplevel, path)
   local rel_path = utils.path:vim_fnamemodify(abs_path, ":~")
@@ -1718,6 +1699,6 @@ M.restore_file = async.wrap(function(toplevel, path, kind, commit, callback)
   local rev_name = (commit and commit:sub(1, 11)) or (kind == "staged" and "HEAD" or "index")
   utils.info(("File restored from %s. Undo with %s"):format(rev_name, undo), true)
   callback()
-end, 5)
+end
 
 return M

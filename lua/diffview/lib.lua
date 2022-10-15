@@ -98,7 +98,7 @@ function M.diffview_open(args)
 
   local git_ctx = {
     toplevel = git_toplevel,
-    dir = vcs.git_dir(git_toplevel),
+    dir = vcs.root_dir(git_toplevel),
   }
 
   if not git_ctx.dir then
@@ -256,7 +256,7 @@ function M.file_history(range, args)
 
   local git_ctx = {
     toplevel = git_toplevel,
-    dir = vcs.git_dir(git_toplevel),
+    dir = vcs.root_dir(git_toplevel),
   }
 
   if not git_ctx.dir then

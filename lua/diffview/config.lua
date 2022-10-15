@@ -38,6 +38,7 @@ M.defaults = {
   diff_binaries = false,
   enhanced_diff_hl = false,
   git_cmd = { "git" },
+  hg_cmd = { "hg" },
   use_icons = true,
   watch_index = true,
   icons = {
@@ -384,6 +385,10 @@ function M.setup(user_config)
 
   if #M._config.git_cmd == 0 then
     M._config.git_cmd = M.defaults.git_cmd
+  end
+
+  if #M._config.hg_cmd == 0 then
+    M._config.hg_cmd = M.defaults.hg_cmd
   end
 
   do
