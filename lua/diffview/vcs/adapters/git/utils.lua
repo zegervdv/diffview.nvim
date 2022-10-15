@@ -42,6 +42,7 @@ local job_queue_sem = Semaphore.new(1)
 
 function M.setup(parent)
   M.exec_sync = parent.exec_sync
+  M.handle_co = parent.handle_co
 end
 
 function M.get_command()
@@ -191,23 +192,6 @@ local ensure_output = async.wrap(function(max_retries, jobs, log_context, callba
 
   callback(JobStatus.ERROR)
 end, 4)
-
----@param thread thread
----@param ok boolean
----@param result any
----@return boolean ok
----@return any result
-local function handle_co(thread, ok, result)
-  if not ok then
-    local err_msg = utils.vec_join(
-      "Coroutine failed!",
-      debug.traceback(thread, result, 1)
-    )
-    utils.err(err_msg, true)
-    logger.s_error(table.concat(err_msg, "\n"))
-  end
-  return ok, result
-end
 
 ---@class git.utils.LayoutOpt
 ---@field default_layout Diff2
@@ -859,7 +843,7 @@ local function parse_fh_data(state)
         if j.code == 0 then
           cur.namestat = j:result()
         end
-        handle_co(state.thread, coroutine.resume(state.thread))
+        M.handle_co(state.thread, coroutine.resume(state.thread))
       end,
     }
 
@@ -1011,7 +995,7 @@ end
 ---@param opt git.utils.FileHistoryWorkerSpec
 ---@param co_state table
 ---@param callback function
-local function file_history_worker(thread, ctx, log_opt, opt, co_state, callback)
+function M.file_history_worker(thread, ctx, log_opt, opt, co_state, callback)
   ---@type LogEntry[]
   local entries = {}
   local data = {}
@@ -1053,7 +1037,7 @@ local function file_history_worker(thread, ctx, log_opt, opt, co_state, callback
       err_msg = msg
     end
     if not state.resume_lock and coroutine.status(thread) == "suspended" then
-      handle_co(thread, coroutine.resume(thread))
+      M.handle_co(thread, coroutine.resume(thread))
     end
 
     if co_state.shutdown then
@@ -1113,29 +1097,6 @@ local function file_history_worker(thread, ctx, log_opt, opt, co_state, callback
   end
 
   callback(entries, JobStatus.SUCCESS)
-end
-
----@param ctx GitContext
----@param log_opt ConfigLogOptions
----@param opt git.utils.FileHistoryWorkerSpec
----@param callback function
----@return fun() finalizer
-function M.file_history(ctx, log_opt, opt, callback)
-  local thread
-
-  local co_state = {
-    shutdown = false,
-  }
-
-  thread = coroutine.create(function()
-    file_history_worker(thread, ctx, log_opt, opt, co_state, callback)
-  end)
-
-  handle_co(thread, coroutine.resume(thread))
-
-  return function()
-    co_state.shutdown = true
-  end
 end
 
 ---@param toplevel string
@@ -1302,7 +1263,7 @@ end
 ---Get the path to the .git directory.
 ---@param path string
 ---@return string|nil
-function M.git_dir(path)
+function M.root_dir(path)
   local out, code = M.exec_sync({ "rev-parse", "--path-format=absolute", "--git-dir" }, path)
   if code ~= 0 then
     return nil
@@ -1317,7 +1278,7 @@ function M.git_context(path)
   if toplevel then
     return {
       toplevel = toplevel,
-      dir = M.git_dir(toplevel),
+      dir = M.root_dir(toplevel),
     }
   end
 end
@@ -1503,21 +1464,6 @@ function M.parse_conflicts(lines, winid)
   end
 
   return ret, cur_conflict, cur_idx or 0
-end
-
----@return string, string
-function M.pathspec_split(pathspec)
-  local magic = pathspec:match("^:[/!^]*:?") or pathspec:match("^:%b()") or ""
-  local pattern = pathspec:sub(1 + #magic, -1)
-  return magic or "", pattern or ""
-end
-
-function M.pathspec_expand(toplevel, cwd, pathspec)
-  local magic, pattern = M.pathspec_split(pathspec)
-  if not utils.path:is_abs(pattern) then
-    pattern = utils.path:join(utils.path:relative(cwd, toplevel), pattern)
-  end
-  return magic .. utils.path:convert(pattern)
 end
 
 ---Check if any of the given revs are LOCAL.

@@ -1,12 +1,19 @@
+local async = require("plenary.async")
 local config = require("diffview.config")
 local utils = require("diffview.utils")
-local async = require("plenary.async")
+local logger = require("diffview.logger")
 
 
 local M = {}
 
 -- TODO: Find current workspace and load correct adapter
-local adapter = require('diffview.vcs.adapters.git.utils')
+local _, code = utils.system_list(vim.tbl_flatten({config.get_config().hg_cmd, "root"}))
+local adapter = nil
+if code == 0 then
+  adapter = require('diffview.vcs.adapters.hg.utils')
+else
+  adapter = require('diffview.vcs.adapters.git.utils')
+end
 
 
 local bootstrap = {
@@ -35,13 +42,44 @@ function M.exec_sync(args, cwd_or_opt)
   )
 end
 
+---@param thread thread
+---@param ok boolean
+---@param result any
+---@return boolean ok
+---@return any result
+function M.handle_co(thread, ok, result)
+  if not ok then
+    local err_msg = utils.vec_join(
+      "Coroutine failed!",
+      debug.traceback(thread, result, 1)
+    )
+    utils.err(err_msg, true)
+    logger.s_error(table.concat(err_msg, "\n"))
+  end
+  return ok, result
+end
+
 ---@param ctx GitContext
 ---@param log_opt ConfigLogOptions
 ---@param opt git.utils.FileHistoryWorkerSpec
 ---@param callback function
 ---@return fun() finalizer
 function M.file_history(ctx, log_opt, opt, callback)
-  return adapter.file_history(ctx, log_opt, opt, callback)
+  local thread
+
+  local co_state = {
+    shutdown = false,
+  }
+
+  thread = coroutine.create(function()
+    adapter.file_history_worker(thread, ctx, log_opt, opt, co_state, callback)
+  end)
+
+  M.handle_co(thread, coroutine.resume(thread))
+
+  return function()
+    co_state.shutdown = true
+  end
 end
 
 ---@param toplevel string
@@ -100,8 +138,7 @@ end
 ---@param path string
 ---@return string|nil
 function M.root_dir(path)
-  -- TODO: Rename
-  return adapter.git_dir(path)
+  return adapter.root_dir(path)
 end
 
 ---@param path string
@@ -129,11 +166,17 @@ end
 
 ---@return string, string
 function M.pathspec_split(pathspec)
-  return adapter.pathspec_split(pathspec)
+  local magic = pathspec:match("^:[/!^]*:?") or pathspec:match("^:%b()") or ""
+  local pattern = pathspec:sub(1 + #magic, -1)
+  return magic or "", pattern or ""
 end
 
 function M.pathspec_expand(toplevel, cwd, pathspec)
-  return adapter.pathspec_expand(toplevel, cwd, pathspec)
+  local magic, pattern = M.pathspec_split(pathspec)
+  if not utils.path:is_abs(pattern) then
+    pattern = utils.path:join(utils.path:relative(cwd, toplevel), pattern)
+  end
+  return magic .. utils.path:convert(pattern)
 end
 
 function M.pathspec_modify(pathspec, mods)
