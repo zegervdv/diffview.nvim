@@ -265,15 +265,12 @@ function HgAdapter:file_history_options(range, paths, argo)
   --   -- TODO: check if range is valid
   -- end
 
-  if range then
-    utils.err("Line ranges are not supported for hg!")
-    return
-  end
 
   local log_flag_names = {
     { "rev", "r" },
     { "follow", "f" },
     { "limit", "l" },
+    { "L" },
     { "no-merges", "M" },
     { "user", "u" },
     { "keyword", "k" },
@@ -289,8 +286,20 @@ function HgAdapter:file_history_options(range, paths, argo)
     local key, _ = names[1]:gsub("%-", "_")
     local v = argo:get_flag(names, {
       expect_string = type(config.log_option_defaults[self.config_key][key]) ~= "boolean",
+      expect_list = names[1] == "L",
     })
     log_options[key] = v
+  end
+
+  if range then
+    paths, rel_paths = {}, {}
+    log_options.L = {
+      ("%s,%d:%d"):format(pl:relative(pl:absolute(cfile), self.ctx.toplevel), range[1], range[2])
+    }
+  end
+
+  if log_options.L and next(log_options.L) then
+    log_options.follow = true -- '--follow' if required with '-L'
   end
 
   log_options.path_args = paths
@@ -338,6 +347,13 @@ function HgAdapter:prepare_fh_options(log_options, single_file)
   local o = log_options
   local rev_range, base
 
+  local line_trace = vim.tbl_map(function(v)
+    if not v:match("^-L") then
+      return "-L" .. v
+    end
+    return v
+  end, o.L or {})
+
   if log_options.rev then
     rev_range = log_options.rev
   end
@@ -351,8 +367,9 @@ function HgAdapter:prepare_fh_options(log_options, single_file)
     base = base,
     path_args = log_options.path_args,
     flags = utils.vec_join(
+      line_trace,
       o.rev and { "--rev=" .. o.rev } or nil,
-      (o.follow and single_file) and { "--follow" } or nil,
+      (o.follow and single_file or (#log_options.L > 0)) and { "--follow" } or nil,
       o.limit and { "--limit=" .. o.limit } or nil,
       o.no_merges and { "--no-merges" } or nil,
       o.user and { "--user=" .. o.user } or nil,
@@ -387,9 +404,13 @@ function HgAdapter:file_history_dry_run(log_opt)
   options = self:prepare_fh_options(log_options, single_file).flags
 
   local context = "HgAdapter.file_history_dry_run()"
+  if #log_options.L > 0 then
+    return true, table.concat(description, ", ")
+  end
   local cmd = utils.vec_join(
     "log",
     log_options.rev and "--rev=" .. log_options.rev or nil,
+
     options,
     log_options.path_args
   )
@@ -621,11 +642,24 @@ function HgAdapter:parse_fh_data(state)
   local files = {}
   for i = 1, #cur.numstat - 1 do
     local status = cur.namestat[i]:sub(1, 1):gsub("%s", " ")
-    local name = vim.trim(cur.namestat[i]:match("[%a%s]%s*(.*)"))
+    if status == 'R' then
+      -- R is for Removed in mercurial
+      status = 'D'
+    end
     local oldname
 
     local stats = {}
-    local changes, diffstats = cur.numstat[i]:match(".*|%s+(%d+)%s+([+-]+)")
+    local name, changes, diffstats = cur.numstat[i]:match("(.*)|%s+(%d+)%s*([+-]*)")
+    name = vim.trim(name)
+
+    if name:match('=>') ~= nil then
+      oldname, name = name:match('(.*) => (.*)')
+      oldname = vim.trim(oldname)
+      name = vim.trim(name)
+      -- Mark as Renamed
+      status = 'R'
+    end
+
     if changes and diffstats then
       local _, adds = diffstats:gsub("+", "")
 
@@ -1243,7 +1277,12 @@ HgAdapter.show = async.wrap(function(self, path, rev, callback)
       })
 
       if j.code ~= 0 then
-        callback(j:stderr_result() or {}, nil)
+        local out = table.concat(j:stderr_result())
+        if out:match('no such file in rev') then
+          callback(nil, {})
+        else
+          callback(j:stderr_result() or {}, nil)
+        end
         return
       end
 

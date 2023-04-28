@@ -277,6 +277,7 @@ M._config = M.defaults
 ---@class HgLogOptions
 ---@field follow string
 ---@field limit integer
+---@field L string[]
 ---@field user string
 ---@field no_merges boolean
 ---@field rev string
