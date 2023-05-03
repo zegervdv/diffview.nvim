@@ -368,7 +368,6 @@ function HgAdapter:prepare_fh_options(log_options, single_file)
     path_args = log_options.path_args,
     flags = utils.vec_join(
       line_trace,
-      o.rev and { "--rev=" .. o.rev } or nil,
       (o.follow and single_file or (#log_options.L > 0)) and { "--follow" } or nil,
       o.limit and { "--limit=" .. o.limit } or nil,
       o.no_merges and { "--no-merges" } or nil,
