@@ -597,30 +597,13 @@ function HgAdapter:parse_fh_data(state)
       end,
     }
 
-    local max_retries = 2
     local context = "HgAdapter:parse_fh_data()"
     state.resume_lock = true
 
-    for i = 0, max_retries do
-      -- Git sometimes fails this job silently (exit code 0). Not sure why,
-      -- possibly because we are running multiple git opeartions on the same
-      -- repo concurrently. Retrying the job usually solves this.
-      job = Job:new(job_spec)
-      job:start()
-      coroutine.yield()
-      utils.handle_job(job, { fail_on_empty = true, context = context, log_func = logger.warn })
-
-      if #cur.namestat == 0 then
-        if i < max_retries then
-          logger.warn(("[%s] Retrying %d more time(s)."):format(context, max_retries - i))
-        end
-      else
-        if i > 0 then
-          logger.info(("[%s] Retry successful!"):format(context))
-        end
-        break
-      end
-    end
+    job = Job:new(job_spec)
+    job:start()
+    coroutine.yield()
+    utils.handle_job(job, { fail_on_empty = true, context = context, log_func = logger.warn })
 
     state.resume_lock = false
 
