@@ -576,7 +576,7 @@ end)
 function HgAdapter:parse_fh_data(state)
   local cur = state.cur
 
-  if cur.merge_hash and cur.numstat[1] and #cur.numstat ~= #cur.namestat then
+  if cur.merge_hash and cur.numstat[1] or (#cur.numstat - 1) ~= #cur.namestat then
     local job
     local job_spec = {
       command = self:bin(),
