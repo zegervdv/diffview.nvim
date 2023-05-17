@@ -272,11 +272,6 @@ function HgAdapter:file_history_options(range, paths, argo)
   --   -- TODO: check if range is valid
   -- end
 
-  if range then
-    utils.err("Line ranges are not supported for hg!")
-    return
-  end
-
   local log_flag_names = {
     { "rev", "r" },
     { "follow", "f" },
@@ -296,8 +291,20 @@ function HgAdapter:file_history_options(range, paths, argo)
     local key, _ = names[1]:gsub("%-", "_")
     local v = argo:get_flag(names, {
       expect_string = type(config.log_option_defaults[self.config_key][key]) ~= "boolean",
+      expect_list = names[1] == "L",
     })
     log_options[key] = v
+  end
+
+  if range then
+    paths, rel_paths = {}, {}
+    log_options.L = {
+      ("%s,%d:%d"):format(pl:relative(pl:absolute(cfile), self.ctx.toplevel), range[1], range[2])
+    }
+  end
+
+  if log_options.L and next(log_options.L) then
+    log_options.follow = true -- '--follow' is required with '-L'
   end
 
   log_options.path_args = paths
@@ -342,20 +349,24 @@ function HgAdapter:prepare_fh_options(log_options, single_file)
   local o = log_options
   local rev_range, base
 
+  local line_trace = vim.tbl_map(function(v)
+    if not v:match("^-L") then
+      return "-L" .. v
+    end
+    return v
+  end, o.L or {})
+
   if log_options.rev then
     rev_range = log_options.rev
   end
-
-  -- if log_options.base then
-  --   -- TODO
-  -- end
 
   return {
     rev_range = rev_range,
     base = base,
     path_args = log_options.path_args,
     flags = utils.vec_join(
-      (o.follow and single_file) and { "--follow" } or nil,
+      line_trace,
+      (o.follow and single_file or (line_trace and #line_trace > 0)) and { "--follow" } or nil,
       o.limit and { "--limit=" .. o.limit } or nil,
       o.no_merges and { "--no-merges" } or nil,
       o.user and { "--user=" .. o.user } or nil,
@@ -390,6 +401,9 @@ function HgAdapter:file_history_dry_run(log_opt)
   options = self:prepare_fh_options(log_options, single_file).flags
 
   local context = "HgAdapter:file_history_dry_run()"
+  if log_options.L and (#log_options.L > 0) then
+    return true, table.concat(description, ", ")
+  end
   local cmd = utils.vec_join(
     "log",
     log_options.rev and "--rev=" .. log_options.rev or nil,
